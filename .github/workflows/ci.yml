@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.mbt"
+      - "**/*.mbt.md"
+      - "moon.mod"
+      - "**/moon.pkg"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.mbt"
+      - "**/*.mbt.md"
+      - "moon.mod"
+      - "**/moon.pkg"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/**"
+
+# Deny all permissions by default; grant only what each job needs.
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Do not leave the GitHub token in the checkout remote.
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Check Nix flake
+        run: nix flake check
+
+      - name: Check MoonBit toolchain
+        run: nix develop --command moon version
+
+      - name: moon fmt
+        if: hashFiles('moon.mod') != ''
+        run: nix develop --command moon fmt --check
+
+      - name: moon check
+        if: hashFiles('moon.mod') != ''
+        run: nix develop --command moon check --target native --warn-list +73 --deny-warn
+
+      - name: moon test
+        if: hashFiles('moon.mod') != ''
+        run: nix develop --command moon test --target native --no-render
